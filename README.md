@@ -1,1 +1,2 @@
 # QuickML-dashboard
+<p>An interactive Streamlit-based AutoML dashboard that lets users upload CSV, Excel, or PDF data, and train machine learning models instantly. It supports regression and classification with automatic performance comparison and model selection.</p>
