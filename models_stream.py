@@ -131,110 +131,117 @@ if df is not None and not df.empty:
             st.error(f"Visualization error: {e}")
 
     # -------- TAB 3 (FULL FIXED ML) --------
-    with tab3:
+    with tab_model:
+        st.subheader("Model Configuration")
+        
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            y_col = st.selectbox("Select Target Variable (Y)", options=df.columns, key="target_y")
+            
+        with col_m2:
+            select_all = st.checkbox("Select all columns as features", value=True)
+            feature_choices = [col for col in df.columns if col != y_col]
+            
+            if select_all:
+                x_cols = st.multiselect("Select Independent Variables (X)", options=feature_choices, default=feature_choices)
+            else:
+                x_cols = st.multiselect("Select Independent Variables (X)", options=feature_choices)
 
-        y_col = st.selectbox("Target (Y)", df.columns)
-        x_cols = st.multiselect("Features (X)", [c for c in df.columns if c != y_col])
-
+        # Process chosen features
         if len(x_cols) > 0:
-
+            
+            # Drop rows where critical modeling variables are null
             ml_df = df[[y_col] + x_cols].dropna()
-
+            
             X = ml_df[x_cols]
             y = ml_df[y_col]
-
+            
+            # Auto convert object categories to categorical dummy flags
             X = pd.get_dummies(X, drop_first=True)
-
-            task = st.radio("Task", ["Regression", "Classification"])
-
-            if st.button("🚀 Train"):
-
-                # Clean numeric
-                X = X.apply(pd.to_numeric, errors='coerce')
-
-                if task == "Regression":
+            
+            task_type = st.radio("Select Task Type", ["Regression", "Classification"], horizontal=True)
+            
+            if st.button("🚀 Train & Evaluate Models", use_container_width=True):
+                # Ensure numeric compatibility for regression/target conversions
+                if task_type == "Regression":
                     y = pd.to_numeric(y, errors='coerce')
-
-                valid = X.notna().all(axis=1)
-                if task == "Regression":
-                    valid = valid & y.notna()
-
-                X, y = X[valid], y[valid]
-
-                if X.empty:
-                    st.error("No valid data.")
-                    st.stop()
-
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=0.2, random_state=42
-                )
-
-                # ===== REGRESSION =====
-                if task == "Regression":
-
-                    best_deg = 0
-                    best_score = -999
-                    scores = []
-
-                    for d in range(1, 11):
-                        try:
-                            poly = PolynomialFeatures(degree=d)
-
-                            Xtr = poly.fit_transform(X_train)
-                            Xte = poly.transform(X_test)
-
-                            model = LinearRegression()
-                            model.fit(Xtr, y_train)
-
-                            pred = model.predict(Xte)
-                            score = r2_score(y_test, pred)
-
-                            scores.append((d, score))
-
-                            if score > best_score:
-                                best_score = score
-                                best_deg = d
-
-                        except:
-                            continue
-
-                    st.metric("Best Degree", best_deg)
-                    st.metric("Best R²", f"{round(best_score*100,2)}%")
-
-                    res_df = pd.DataFrame(scores, columns=["Degree", "R2"])
-                    fig = px.line(res_df, x="Degree", y="R2")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # ===== CLASSIFICATION =====
+                    X = X.apply(pd.to_numeric, errors='coerce')
+                    
+                    # Eliminate any nan gaps caused by forced conversions
+                    valid_idx = y.notna() & X.notna().all(axis=1)
+                    X, y = X[valid_idx], y[valid_idx]
+                
+                    if not X.empty and not y.empty:
+                        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                        st.write("---")
+                        
+                        best_degree = None
+                        best_score = -999
+                        scores = []
+                        
+                        for d in range(1, 11):
+                            try:
+                                poly = PolynomialFeatures(degree=d)
+                                x_train_poly = poly.fit_transform(X_train)
+                                x_test_poly = poly.transform(X_test)
+                            
+                                model = LinearRegression()
+                                model.fit(x_train_poly, y_train)
+                                preds = model.predict(x_test_poly)
+                            
+                                score = r2_score(y_test, preds)
+                                scores.append((d, score))
+                            
+                                if score > best_score:
+                                    best_score = score
+                                    best_degree = d
+                    
+                            except Exception as e:
+                                # Skip if model fails (important for high degrees)
+                                continue
+                        
+                        # Display best result
+                        st.metric(
+                            label=f"🏆 Best Polynomial Degree: {best_degree}",
+                            value=f"{round(best_score * 100, 2)}%"
+                        )
+                
+                        # Optional: plot
+                        fig_deg = px.line(res_df, x="Degree", y="R2 Score", title="Degree vs R² Score")
+                        st.plotly_chart(fig_deg, use_container_width=True)
+                        
+                    else:
+                        # Classification configuration
+                        class_models = {
+                            "KNN": KNeighborsClassifier(n_neighbors=3),
+                            "Decision Tree": DecisionTreeClassifier(criterion="entropy", random_state=42, max_depth=3),
+                            "SVM": SVC(kernel="rbf", C=50, random_state=42),
+                            "Random Forest": RandomForestClassifier(criterion="entropy", n_estimators=5, max_depth=4, random_state=42)
+                        }
+                        
+                        c = {}
+                        for name, clf in class_models.items():
+                            clf.fit(X_train, y_train.astype(str)) # Ensure labels treat as explicit strings/classes
+                            preds = clf.predict(X_test)
+                            score = accuracy_score(y_test.astype(str), preds)
+                            c[name] = score
+                        
+                        st.subheader("Model Leaderboard")
+                        res_df = pd.DataFrame(list(c.items()), columns=["Model", "Accuracy"])
+                        res_df["Accuracy %"] = res_df["Accuracy"].apply(lambda val: f"{round(val*100,2)}%")
+                        
+                        col_lead1, col_lead2 = st.columns([1, 2])
+                        with col_lead1:
+                            st.dataframe(res_df[["Model", "Accuracy %"]], hide_index=True)
+                            best_model = max(c, key=c.get)
+                            st.metric(label=f"Best Performance: {best_model}", value=f"{round(c[best_model]*100, 2)}%")
+                        with col_lead2:
+                            fig_res = px.bar(res_df, x="Model", y="Accuracy", color="Model", title="Classifier Performance Comparison")
+                            st.plotly_chart(fig_res, use_container_width=True)
                 else:
-
-                    models = {
-                        "KNN": KNeighborsClassifier(),
-                        "Decision Tree": DecisionTreeClassifier(),
-                        "SVM": SVC(),
-                        "Random Forest": RandomForestClassifier()
-                    }
-
-                    results = {}
-
-                    for name, m in models.items():
-                        m.fit(X_train, y_train.astype(str))
-                        pred = m.predict(X_test)
-                        acc = accuracy_score(y_test.astype(str), pred)
-                        results[name] = acc
-
-                    res_df = pd.DataFrame(list(results.items()), columns=["Model", "Accuracy"])
-
-                    st.dataframe(res_df)
-
-                    best = max(results, key=results.get)
-                    st.metric("Best Model", f"{best} ({round(results[best]*100,2)}%)")
-
-                    fig = px.bar(res_df, x="Model", y="Accuracy", color="Model")
-                    st.plotly_chart(fig, use_container_width=True)
-
+                    st.error("❌ The processed numbers contain null values. Check that your selected variables contain numbers.")
         else:
-            st.warning("Select features.")
+            st.warning("⚠️ Please select at least one feature column (X) to train the model.")
 
 else:
     st.info("Upload a file to start.")
