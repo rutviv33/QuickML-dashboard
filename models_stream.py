@@ -131,7 +131,7 @@ if df is not None and not df.empty:
             st.error(f"Visualization error: {e}")
 
     # -------- TAB 3 (FULL FIXED ML) --------
-    with tab_model:
+    with tab3:
         st.subheader("Model Configuration")
         
         col_m1, col_m2 = st.columns(2)
